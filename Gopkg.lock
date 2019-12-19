@@ -123,6 +123,9 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  input-imports = ["go.mongodb.org/mongo-driver/mongo"]
+  input-imports = [
+    "go.mongodb.org/mongo-driver/mongo",
+    "go.mongodb.org/mongo-driver/mongo/options",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1
