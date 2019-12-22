@@ -15,9 +15,10 @@ import (
 const apiVersion = "v0.0.1"
 
 type UserQueryRequest struct {
-	Version     string `json:"version"`
-	Href        string `json:"href"`
-	SearchValue string `json:"searchValue"`
+	Version     string `json:"version" bson:"version"`
+	Href        string `json:"href" bson:"href"`
+	SearchValue string `json:"searchValue" bson:"search_value"`
+	IsChecked   bool   `json:"isChecked" bson:"is_checked"`
 }
 
 type UserQueriesRequest []UserQueryRequest
@@ -29,8 +30,10 @@ type UserQueryResponse struct {
 type UserQueriesResponse []UserQueryResponse
 
 type UserFavoriteRequest struct {
-	Version string `json:"version"`
-	Href    string `json:"href"`
+	Version   string `json:"version" bson:"version"`
+	Href      string `json:"href" bson:"href"`
+	Lang      string `json:"lang" bson:"lang"`
+	IsChecked bool   `json:"isChecked" bson:"is_checked"`
 }
 
 type UserFavoritesRequest []UserFavoriteRequest
