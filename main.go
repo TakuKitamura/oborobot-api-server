@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -15,8 +16,9 @@ import (
 const apiVersion = "v0.0.1"
 
 type UserQueryRequest struct {
-	Version     string `json:"version" bson:"version"`
-	Href        string `json:"href" bson:"href"`
+	Version string `json:"version" bson:"version"`
+	Href    string `json:"href" bson:"href"`
+	// Lang        string `json:"lang" bson:"lang"`
 	SearchValue string `json:"searchValue" bson:"search_value"`
 	IsChecked   bool   `json:"isChecked" bson:"is_checked"`
 }
@@ -30,10 +32,10 @@ type UserQueryResponse struct {
 type UserQueriesResponse []UserQueryResponse
 
 type UserFavoriteRequest struct {
-	Version   string `json:"version" bson:"version"`
-	Href      string `json:"href" bson:"href"`
-	Lang      string `json:"lang" bson:"lang"`
-	IsChecked bool   `json:"isChecked" bson:"is_checked"`
+	Version string `json:"version" bson:"version"`
+	Href    string `json:"href" bson:"href"`
+	// Lang      string `json:"lang" bson:"lang"`
+	IsChecked bool `json:"isChecked" bson:"is_checked"`
 }
 
 type UserFavoritesRequest []UserFavoriteRequest
@@ -91,6 +93,24 @@ func userQueryRequest() http.HandlerFunc {
 			}
 
 			fmt.Println(userQueryRequest)
+
+			url, err := url.ParseQuery(userQueryRequest.Href)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			keys, ok := url["q"]
+
+			if !ok || len(keys[0]) < 1 {
+				fmt.Println("Url Param 'key' is missing")
+				return
+			}
+
+			searchValue := keys[0]
+
+			userQueryRequest.SearchValue = searchValue
+
+			// fmt.Println(searchValue)
 
 			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 			client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
