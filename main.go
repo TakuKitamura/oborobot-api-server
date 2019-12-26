@@ -93,17 +93,17 @@ func userQueryRequest() http.HandlerFunc {
 				return
 			}
 
-			fmt.Println(userQueryRequest)
-
-			url, err := url.ParseQuery(userQueryRequest.Href)
+			url, err := url.Parse(userQueryRequest.Href)
 			if err != nil {
 				fmt.Println(err)
 			}
 
-			keys, ok := url["q"]
+			queries := url.Query()
+
+			keys, ok := queries["q"]
 
 			if !ok || len(keys[0]) < 1 {
-				fmt.Println("Url Param 'key' is missing")
+				fmt.Println(keys, " is missing")
 				return
 			}
 
@@ -217,5 +217,6 @@ func main() {
 	http.HandleFunc(userEndpointName+"/favorite", userFavoriteRequest())
 
 	ip := flag.Arg(0)
-	http.ListenAndServe(ip+":3000", nil)
+	err := http.ListenAndServeTLS(ip+":3000", "cert_key/cert.pem", "cert_key/key.pem", nil)
+	fmt.Println(err)
 }
