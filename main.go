@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -202,9 +203,19 @@ func userFavoriteRequest() http.HandlerFunc {
 }
 
 func main() {
+	flag.Parse()
+	args := flag.Args()
+
+	if len(args) != 1 {
+		fmt.Println("args are invalid.")
+		return
+	}
+
 	apiEndpointName := "/api"
 	userEndpointName := apiEndpointName + "/user"
 	http.HandleFunc(userEndpointName+"/query", userQueryRequest())
 	http.HandleFunc(userEndpointName+"/favorite", userFavoriteRequest())
-	http.ListenAndServe(":3000", nil)
+
+	ip := flag.Arg(0)
+	http.ListenAndServe(ip+":3000", nil)
 }
