@@ -471,8 +471,19 @@ func questionRequest() http.HandlerFunc {
 
 					// TODO: あっているか要確認
 					if (strings.ToUpper(question.QuestionSeedEN) == strings.ToUpper(selectKeyword) || strings.ToUpper(question.QuestionSeedJA) == strings.ToUpper(selectKeyword)) && question.QuestionSeedType != "Verb" && question.Lang == questionRequest.Lang {
-						haveSelectKeyword = true
-						break
+
+						haveString := false
+						for k := 0; k < len(suggest_question); k++ {
+							suggest_question_value := suggest_question[k]
+							if strings.Contains(strings.ToUpper(suggest_question_value), strings.ToUpper(selectKeyword)) {
+								haveString = true
+							}
+						}
+						if haveString == false {
+							haveSelectKeyword = true
+							break
+						}
+
 					}
 				}
 
