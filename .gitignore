@@ -19,3 +19,6 @@ cert_key
 
 # Meta
 .DS_Store
+
+# Config
+config.json

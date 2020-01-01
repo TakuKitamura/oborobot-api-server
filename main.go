@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +21,17 @@ import (
 )
 
 const apiVersion = "v0.0.1"
+
+type Config struct {
+	Schema string `json:"schema"`
+	Host   string `json:"host"`
+	Port   string `json:"port"`
+}
+
+type Configs struct {
+	Test    Config `json:"test"`
+	Product Config `json:"product"`
+}
 
 type UserQueryRequest struct {
 	Version string `json:"version" bson:"version"`
@@ -551,6 +564,35 @@ func main() {
 		return
 	}
 
+	configsJSON, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	configs := Configs{}
+
+	err = json.Unmarshal(configsJSON, &configs)
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+
+	envType := flag.Arg(0)
+
+	const envTypeTest = "test"
+	const envTypeProduct = "product"
+
+	config := Config{}
+	if envType == envTypeTest {
+		config = configs.Test
+	} else if envType == envTypeProduct {
+		config = configs.Product
+	} else {
+		log.Println("config-type is invalid.")
+		os.Exit(1)
+	}
+
 	apiEndpointName := "/api"
 	userEndpointName := apiEndpointName + "/user"
 	http.HandleFunc(userEndpointName+"/query", userQueryRequest())
@@ -559,9 +601,28 @@ func main() {
 	questionEndpointName := apiEndpointName + "/question"
 	http.HandleFunc(questionEndpointName, questionRequest())
 
-	ip := flag.Arg(0)
-	fmt.Println("https://" + ip + ":3000")
-	err := http.ListenAndServeTLS(ip+":3000", "cert_key/cert.pem", "cert_key/key.pem", nil)
-	// err := http.ListenAndServe(ip+":3000", nil)
-	fmt.Println(err)
+	schema := config.Schema
+	host := config.Host
+	port := config.Port
+	addr := host + ":" + port
+	fmt.Println("LISTEN: ", schema+"://"+addr)
+
+	// 証明書の作成参考: https://ozuma.hatenablog.jp/entry/20130511/1368284304
+	if envType == envTypeTest {
+		err = http.ListenAndServeTLS(addr, "cert_key/test/cert.pem", "cert_key/test/key.pem", nil)
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+	} else if envType == envTypeProduct {
+		err = http.ListenAndServeTLS(addr, "cert_key/product/cert.pem", "cert_key/product/key.pem", nil)
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+	} else {
+		log.Println("config-type is invalid.")
+		os.Exit(1)
+	}
+
 }
