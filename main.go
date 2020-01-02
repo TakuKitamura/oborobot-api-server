@@ -243,6 +243,9 @@ func userQueryRequest() http.HandlerFunc {
 func userFavoriteRequest() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case "OPTIONS":
+			CORSforOptions(&w)
+			return
 		case "POST":
 			requestBody, err := ioutil.ReadAll(r.Body)
 			defer r.Body.Close()
@@ -299,6 +302,9 @@ func userFavoriteRequest() http.HandlerFunc {
 func questionRequest() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case "OPTIONS":
+			CORSforOptions(&w)
+			return
 		case "POST":
 			requestBody, err := ioutil.ReadAll(r.Body)
 			defer r.Body.Close()
