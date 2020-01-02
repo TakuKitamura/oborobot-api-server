@@ -66,7 +66,7 @@ type UserFavoritesResponse []UserFavoriteResponse
 
 type QuestionRequest struct {
 	Version string `json:"version" bson:"version"`
-	Href    string `json:"href" bson:"href"`
+	Value   string `json:"value" bson:"value"`
 	Lang    string `json:"lang" bson:"lang"`
 }
 
@@ -325,8 +325,8 @@ func questionRequest() http.HandlerFunc {
 
 			fmt.Println(questionRequest)
 
-			if len(questionRequest.Href) == 0 {
-				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'href'.")
+			if len(questionRequest.Value) == 0 {
+				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'value'.")
 				return
 			} else if len(questionRequest.Lang) == 0 {
 				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'lang'.")
@@ -338,21 +338,21 @@ func questionRequest() http.HandlerFunc {
 				return
 			}
 
-			url, err := url.Parse(questionRequest.Href)
-			if err != nil {
-				fmt.Println(err)
-			}
+			// url, err := url.Parse(questionRequest.Href)
+			// if err != nil {
+			// 	fmt.Println(err)
+			// }
 
-			queries := url.Query()
+			// queries := url.Query()
 
-			keys, ok := queries["q"]
+			// keys, ok := queries["q"]
 
-			if !ok || len(keys[0]) < 1 {
-				fmt.Println(keys, " is missing")
-				return
-			}
+			// if !ok || len(keys[0]) < 1 {
+			// 	fmt.Println(keys, " is missing")
+			// 	return
+			// }
 
-			searchValue := keys[0]
+			searchValue := questionRequest.Value
 
 			splitedSearchValue := regexp.MustCompile("[ 　	]").Split(searchValue, -1)
 
