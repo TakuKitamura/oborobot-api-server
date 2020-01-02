@@ -145,6 +145,13 @@ func responseErrorJSON(w http.ResponseWriter, code int, message string) {
 	json.NewEncoder(w).Encode(errorsResponse)
 }
 
+func CORSforOptions(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	(*w).WriteHeader(204)
+}
+
 func removeDuplicate(args []string) []string {
 	results := make([]string, 0, len(args))
 	encountered := map[string]bool{}
@@ -160,6 +167,9 @@ func removeDuplicate(args []string) []string {
 func userQueryRequest() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case "OPTIONS":
+			CORSforOptions(&w)
+			return
 		case "POST":
 			requestBody, err := ioutil.ReadAll(r.Body)
 			defer r.Body.Close()
