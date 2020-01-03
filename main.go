@@ -9,7 +9,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -35,10 +34,10 @@ type Configs struct {
 
 type UserQueryRequest struct {
 	Version string `json:"version" bson:"version"`
-	Href    string `json:"href" bson:"href"`
+	// Href    string `json:"href" bson:"href"`
 	// Lang        string `json:"lang" bson:"lang"`
-	SearchValue string `json:"searchValue" bson:"search_value"`
-	IsChecked   bool   `json:"isChecked" bson:"is_checked"`
+	Value     string `json:"value" bson:"value"`
+	IsChecked bool   `json:"isChecked" bson:"is_checked"`
 }
 
 type UserQueriesRequest []UserQueryRequest
@@ -187,23 +186,23 @@ func userQueryRequest() http.HandlerFunc {
 				return
 			}
 
-			url, err := url.Parse(userQueryRequest.Href)
-			if err != nil {
-				fmt.Println(err)
-			}
+			// url, err := url.Parse(userQueryRequest.Href)
+			// if err != nil {
+			// 	fmt.Println(err)
+			// }
 
-			queries := url.Query()
+			// queries := url.Query()
 
-			keys, ok := queries["q"]
+			// keys, ok := queries["q"]
 
-			if !ok || len(keys[0]) < 1 {
-				fmt.Println(keys, " is missing")
-				return
-			}
+			// if !ok || len(keys[0]) < 1 {
+			// 	fmt.Println(keys, " is missing")
+			// 	return
+			// }
 
-			searchValue := keys[0]
+			// searchValue := keys[0]
 
-			userQueryRequest.SearchValue = searchValue
+			// userQueryRequest.Value = searchValue
 
 			// fmt.Println(searchValue)
 
