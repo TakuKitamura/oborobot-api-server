@@ -36,8 +36,8 @@ type UserQueryRequest struct {
 	Version string `json:"version" bson:"version"`
 	Href    string `json:"href" bson:"href"`
 	// Lang        string `json:"lang" bson:"lang"`
-	Value     string `json:"value" bson:"value"`
-	IsChecked bool   `json:"isChecked" bson:"is_checked"`
+	SearchValue string `json:"searchValue" bson:"search_value"`
+	IsChecked   bool   `json:"isChecked" bson:"is_checked"`
 }
 
 type UserQueriesRequest []UserQueryRequest
