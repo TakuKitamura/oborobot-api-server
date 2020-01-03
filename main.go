@@ -34,7 +34,7 @@ type Configs struct {
 
 type UserQueryRequest struct {
 	Version string `json:"version" bson:"version"`
-	// Href    string `json:"href" bson:"href"`
+	Href    string `json:"href" bson:"href"`
 	// Lang        string `json:"lang" bson:"lang"`
 	Value     string `json:"value" bson:"value"`
 	IsChecked bool   `json:"isChecked" bson:"is_checked"`
