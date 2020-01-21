@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -38,6 +39,7 @@ type QuestionAnswerRequest struct {
 	QuestionNumber   int    `json:"questionNumber" bson:"question_number"`
 	Version          string `json:"version" bson:"version"`
 	QuestionAnswerID int    `json:"questionAnswerID" bson:"question_answer_id"`
+	QuestionValue    string `json:"questionValue" bson:"question_value"`
 	Lang             string `json:"lang" bson:"lang"`
 }
 
@@ -320,6 +322,224 @@ func userFavoriteRequest() http.HandlerFunc {
 
 }
 
+func questionOrder(questionRequest QuestionRequest, orderQuestionID int) (error, QuestionsResponse) {
+
+	searchValue := questionRequest.Value
+
+	splitedSearchValue := regexp.MustCompile("[ 　	]").Split(searchValue, -1)
+
+	fmt.Println(splitedSearchValue, len(searchValue))
+
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		return err, nil
+	}
+	defer client.Disconnect(ctx)
+
+	words_collection := client.Database("oborobot").Collection("word")
+
+	filter := bson.M{}
+	cur, err := words_collection.Find(ctx, filter)
+	if err != nil {
+		return err, nil
+	}
+
+	words := Words{}
+
+	err = cur.All(ctx, &words)
+	if err != nil {
+		return err, nil
+	}
+
+	urlList := []string{}
+	for i := 0; i < len(splitedSearchValue); i++ {
+		splitedSearchValueEl := splitedSearchValue[i]
+		for j := 0; j < len(words); j++ {
+			word := words[j]
+			if word.UpperValue == strings.ToUpper(splitedSearchValueEl) {
+				haveValue := false
+				for k := 0; k < len(urlList); k++ {
+					if urlList[k] == word.Href {
+						haveValue = true
+					}
+				}
+				if haveValue == false && !strings.Contains(word.Href, "www.google.com/search") {
+					urlList = append(urlList, word.Href)
+				}
+			}
+		}
+	}
+
+	if len(urlList) == 0 {
+		return errors.New("ごめんなさい｡対応できないかも..."), nil
+	}
+
+	urlFilterWords := Words{}
+	keyWords := []string{}
+
+	for i := 0; i < len(urlList); i++ {
+		findOptions := options.Find()
+		findOptions.SetSort(bson.D{{"count", -1}})
+		urlFilter := bson.M{"href": urlList[i]}
+		cur, err = words_collection.Find(ctx, urlFilter, findOptions)
+		if err != nil {
+			return err, nil
+		}
+		temp_urlFilterWords := Words{}
+		err = cur.All(ctx, &temp_urlFilterWords)
+		if err != nil {
+			return err, nil
+		}
+		// fmt.Println(temp_urlFilterWords)
+		for j := 0; j < len(temp_urlFilterWords); j++ {
+			temp_url_filter_word := temp_urlFilterWords[j]
+			if temp_url_filter_word.Type != "Verb" {
+				urlFilterWords = append(urlFilterWords, temp_url_filter_word)
+				haveValue := false
+				for k := 0; k < len(splitedSearchValue); k++ {
+					if splitedSearchValue[k] == temp_url_filter_word.Value {
+						haveValue = true
+					}
+				}
+				if haveValue == false {
+					keyWords = append(keyWords, temp_url_filter_word.Value)
+				}
+			}
+		}
+	}
+
+	// fmt.Println(urlFilterWords, len(urlFilterWords))
+	// fmt.Println(keyWords, 111)
+
+	// Goの場合 urlList
+	// [https://frasco.io/why-we-switched-from-python-to-go-19581e27de7c https://teratail.com/questions/93783 http://www.spinute.org/go-by-example/url-parsing.html]
+
+	maxLoopNumber := 10
+	questionCount := 5
+
+	// select_keywords_success := false
+	selectKeywords := []string{}
+	for i := 0; i < maxLoopNumber; i++ {
+
+		selectKeywords = []string{}
+		for j := 0; j < questionCount; j++ {
+			rand.Seed(time.Now().UnixNano())
+			randomValue := rand.Intn(len(keyWords))
+			selectKeywords = append(selectKeywords, keyWords[randomValue])
+		}
+
+		if len(removeDuplicate(selectKeywords)) == questionCount {
+			// select_keywords_success = true
+			break
+		}
+	}
+
+	// fmt.Println(selectKeywords)
+
+	questions_collection := client.Database("oborobot").Collection("question")
+	filter = bson.M{}
+	cur, err = questions_collection.Find(ctx, filter)
+	if err != nil {
+		return err, nil
+	}
+
+	questions := Questions{}
+
+	err = cur.All(ctx, &questions)
+	if err != nil {
+		return err, nil
+	}
+
+	// fmt.Println(questions)
+
+	suggest_question := []string{}
+	group_suggest_questions := []map[string]string{}
+	for i := 0; i < len(questions); i++ {
+		question := questions[i]
+		haveSelectKeyword := false
+		for j := 0; j < len(selectKeywords); j++ {
+			selectKeyword := selectKeywords[j]
+			// if strings.Contains(question.Question, selectKeyword) || strings.Contains(question.QuestionSeedEN, selectKeyword) || strings.Contains(question.QuestionSeedJA, selectKeyword) && question.QuestionSeedType != "Verb" && question.Lang == questionRequest.Lang {
+			// 	haveSelectKeyword = true
+			// 	break
+			// }
+
+			// TODO: あっているか要確認
+			if (strings.ToUpper(question.QuestionSeedEN) == strings.ToUpper(selectKeyword) || strings.ToUpper(question.QuestionSeedJA) == strings.ToUpper(selectKeyword)) && question.QuestionSeedType != "Verb" {
+
+				haveString := false
+				for k := 0; k < len(suggest_question); k++ {
+					suggest_question_value := suggest_question[k]
+					if strings.Contains(strings.ToUpper(suggest_question_value), strings.ToUpper(selectKeyword)) {
+						haveString = true
+					}
+				}
+				if haveString == false {
+					haveSelectKeyword = true
+					break
+				}
+
+			}
+		}
+
+		if haveSelectKeyword == true {
+			suggest_question = append(suggest_question, question.QuestionJA)
+			suggest_question = append(suggest_question, question.QuestionEN)
+
+			suggest_questions := map[string]string{"question_id": question.ID, "question_ja": question.QuestionJA, "question_en": question.QuestionEN}
+			group_suggest_questions = append(group_suggest_questions, suggest_questions)
+			// fmt.Println(question.QuestionJA, question.QuestionEN)
+		}
+	}
+	fmt.Println(group_suggest_questions)
+	fmt.Println(urlList)
+	// fmt.Println(suggest_question)
+
+	rand.Seed(time.Now().UnixNano())
+	randomValue := rand.Intn(len(urlList))
+	suggest_url := urlList[randomValue]
+
+	randomValue = rand.Intn(len(group_suggest_questions))
+	suggest_ja_en_question := group_suggest_questions[randomValue]
+
+	favorites_collection := client.Database("oborobot").Collection("favorite")
+
+	filter = bson.M{"href": suggest_url}
+	result := favorites_collection.FindOne(ctx, filter)
+
+	favorite := Favorite{}
+	err = result.Decode(&favorite)
+	suggest_url_title := ""
+	suggest_url_description := ""
+
+	// if err != nil {
+	// 	responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+	// 	return
+	// }
+	if err == nil {
+		suggest_url_title = favorite.Title
+		suggest_url_description = favorite.Description
+	}
+
+	// fmt.Println(suggest_question, suggest_url, suggest_url_title)
+
+	questionsResponse := QuestionsResponse{
+		QuestionResponse{
+			Version:        apiVersion,
+			QuestionID:     suggest_ja_en_question["question_id"], // TODO: これ推測できる可能性がある｡
+			QuestionNumber: orderQuestionID,
+			QuestionJA:     suggest_ja_en_question["question_ja"],
+			QuestionEN:     suggest_ja_en_question["question_en"],
+			URL:            suggest_url,
+			Title:          suggest_url_title,
+			Description:    suggest_url_description,
+		},
+	}
+
+	return nil, questionsResponse
+}
+
 func questionRequest() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -346,281 +566,37 @@ func questionRequest() http.HandlerFunc {
 
 			fmt.Println(questionRequest)
 
-			if len(questionRequest.UserID) == 0 {
+			if len(questionRequest.UserID) != 36 {
 				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'userID'.")
 				return
 			} else if len(questionRequest.Value) == 0 {
-				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'value'.")
+				responseErrorJSON(w, http.StatusInternalServerError, "'questionValue is invalid.'")
 				return
-			} else if len(questionRequest.Lang) == 0 {
+			} else if questionRequest.Lang != "ja" && questionRequest.Lang != "en" {
 				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'lang'.")
 				return
 			}
 
-			if questionRequest.Lang != "ja" && questionRequest.Lang != "en" {
-				responseErrorJSON(w, http.StatusInternalServerError, "lang is invalid.")
-				return
+			err, questionsResponse := questionOrder(questionRequest, 1)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
 			}
 
-			// url, err := url.Parse(questionRequest.Href)
-			// if err != nil {
-			// 	fmt.Println(err)
-			// }
-
-			// queries := url.Query()
-
-			// keys, ok := queries["q"]
-
-			// if !ok || len(keys[0]) < 1 {
-			// 	fmt.Println(keys, " is missing")
-			// 	return
-			// }
-
-			searchValue := questionRequest.Value
-
-			splitedSearchValue := regexp.MustCompile("[ 　	]").Split(searchValue, -1)
-
-			fmt.Println(splitedSearchValue, len(searchValue))
-
+			// users := Users{}
 			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 			client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
 			if err != nil {
 				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
 			}
 			defer client.Disconnect(ctx)
 
-			userCollection := client.Database("oborobot").Collection("user")
-
-			findOptions := options.Find()
-			idFilter := bson.M{"id": questionRequest.UserID}
-			cur, err := userCollection.Find(ctx, idFilter, findOptions)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			words_collection := client.Database("oborobot").Collection("word")
-
-			filter := bson.M{}
-			cur, err = words_collection.Find(ctx, filter)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			words := Words{}
-
-			err = cur.All(ctx, &words)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			urlList := []string{}
-			for i := 0; i < len(splitedSearchValue); i++ {
-				splitedSearchValueEl := splitedSearchValue[i]
-				for j := 0; j < len(words); j++ {
-					word := words[j]
-					if word.UpperValue == strings.ToUpper(splitedSearchValueEl) {
-						haveValue := false
-						for k := 0; k < len(urlList); k++ {
-							if urlList[k] == word.Href {
-								haveValue = true
-							}
-						}
-						if haveValue == false && !strings.Contains(word.Href, "www.google.com/search") {
-							urlList = append(urlList, word.Href)
-						}
-					}
-				}
-			}
-
-			if len(urlList) == 0 {
-				responseErrorJSON(w, http.StatusInternalServerError, "ごめんなさい｡対応できないかも...")
-				return
-			}
-
-			urlFilterWords := Words{}
-			keyWords := []string{}
-
-			for i := 0; i < len(urlList); i++ {
-				findOptions := options.Find()
-				findOptions.SetSort(bson.D{{"count", -1}})
-				urlFilter := bson.M{"href": urlList[i]}
-				cur, err = words_collection.Find(ctx, urlFilter, findOptions)
-				if err != nil {
-					responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				temp_urlFilterWords := Words{}
-				err = cur.All(ctx, &temp_urlFilterWords)
-				if err != nil {
-					responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				// fmt.Println(temp_urlFilterWords)
-				for j := 0; j < len(temp_urlFilterWords); j++ {
-					temp_url_filter_word := temp_urlFilterWords[j]
-					if temp_url_filter_word.Type != "Verb" {
-						urlFilterWords = append(urlFilterWords, temp_url_filter_word)
-						haveValue := false
-						for k := 0; k < len(splitedSearchValue); k++ {
-							if splitedSearchValue[k] == temp_url_filter_word.Value {
-								haveValue = true
-							}
-						}
-						if haveValue == false {
-							keyWords = append(keyWords, temp_url_filter_word.Value)
-						}
-					}
-				}
-			}
-
-			// fmt.Println(urlFilterWords, len(urlFilterWords))
-			// fmt.Println(keyWords, 111)
-
-			// Goの場合 urlList
-			// [https://frasco.io/why-we-switched-from-python-to-go-19581e27de7c https://teratail.com/questions/93783 http://www.spinute.org/go-by-example/url-parsing.html]
-
-			maxLoopNumber := 10
-			questionCount := 5
-
-			// select_keywords_success := false
-			selectKeywords := []string{}
-			for i := 0; i < maxLoopNumber; i++ {
-
-				selectKeywords = []string{}
-				for j := 0; j < questionCount; j++ {
-					rand.Seed(time.Now().UnixNano())
-					randomValue := rand.Intn(len(keyWords))
-					selectKeywords = append(selectKeywords, keyWords[randomValue])
-				}
-
-				if len(removeDuplicate(selectKeywords)) == questionCount {
-					// select_keywords_success = true
-					break
-				}
-			}
-
-			// fmt.Println(selectKeywords)
-
-			questions_collection := client.Database("oborobot").Collection("question")
-			filter = bson.M{}
-			cur, err = questions_collection.Find(ctx, filter)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			questions := Questions{}
-
-			err = cur.All(ctx, &questions)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			// fmt.Println(questions)
-
-			suggest_question := []string{}
-			group_suggest_questions := []map[string]string{}
-			for i := 0; i < len(questions); i++ {
-				question := questions[i]
-				haveSelectKeyword := false
-				for j := 0; j < len(selectKeywords); j++ {
-					selectKeyword := selectKeywords[j]
-					// if strings.Contains(question.Question, selectKeyword) || strings.Contains(question.QuestionSeedEN, selectKeyword) || strings.Contains(question.QuestionSeedJA, selectKeyword) && question.QuestionSeedType != "Verb" && question.Lang == questionRequest.Lang {
-					// 	haveSelectKeyword = true
-					// 	break
-					// }
-
-					// TODO: あっているか要確認
-					if (strings.ToUpper(question.QuestionSeedEN) == strings.ToUpper(selectKeyword) || strings.ToUpper(question.QuestionSeedJA) == strings.ToUpper(selectKeyword)) && question.QuestionSeedType != "Verb" {
-
-						haveString := false
-						for k := 0; k < len(suggest_question); k++ {
-							suggest_question_value := suggest_question[k]
-							if strings.Contains(strings.ToUpper(suggest_question_value), strings.ToUpper(selectKeyword)) {
-								haveString = true
-							}
-						}
-						if haveString == false {
-							haveSelectKeyword = true
-							break
-						}
-
-					}
-				}
-
-				if haveSelectKeyword == true {
-					suggest_question = append(suggest_question, question.QuestionJA)
-					suggest_question = append(suggest_question, question.QuestionEN)
-
-					suggest_questions := map[string]string{"question_id": question.ID, "question_ja": question.QuestionJA, "question_en": question.QuestionEN}
-					group_suggest_questions = append(group_suggest_questions, suggest_questions)
-					// fmt.Println(question.QuestionJA, question.QuestionEN)
-				}
-			}
-			fmt.Println(group_suggest_questions)
-			fmt.Println(urlList)
-			// fmt.Println(suggest_question)
-
-			rand.Seed(time.Now().UnixNano())
-			randomValue := rand.Intn(len(urlList))
-			suggest_url := urlList[randomValue]
-
-			randomValue = rand.Intn(len(group_suggest_questions))
-			suggest_ja_en_question := group_suggest_questions[randomValue]
-
-			favorites_collection := client.Database("oborobot").Collection("favorite")
-
-			filter = bson.M{"href": suggest_url}
-			result := favorites_collection.FindOne(ctx, filter)
-
-			favorite := Favorite{}
-			err = result.Decode(&favorite)
-			suggest_url_title := ""
-			suggest_url_description := ""
-
-			// if err != nil {
-			// 	responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-			// 	return
-			// }
-			if err == nil {
-				suggest_url_title = favorite.Title
-				suggest_url_description = favorite.Description
-			}
-
-			// fmt.Println(suggest_question, suggest_url, suggest_url_title)
-
-			questionNumber := 1
-
-			questionsResponse := QuestionsResponse{
-				QuestionResponse{
-					Version:        apiVersion,
-					QuestionID: suggest_ja_en_question["question_id"], // TODO: これ推測できる可能性がある｡
-					QuestionNumber: questionNumber,
-					QuestionJA:     suggest_ja_en_question["question_ja"],
-					QuestionEN:     suggest_ja_en_question["question_en"],
-					URL:            suggest_url,
-					Title:          suggest_url_title,
-					Description:    suggest_url_description,
-				},
-			}
-
-			users := Users{}
 			user := User{}
-			err = cur.All(ctx, &users)
-			if err != nil {
-				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
-				return
-			}
+			userCollection := client.Database("oborobot").Collection("user")
+			idFilter := bson.M{"id": questionRequest.UserID}
+			userResult := userCollection.FindOne(ctx, idFilter)
+			err = userResult.Decode(&user)
 
-			if len(users) == 0 {
-				// initQuestionAnswers := QuestionAnswersRequest{
-				// 	QuestionAnswerRequest{},
-				// }
+			if err != nil { // userが存在しない
 				user = User{
 					ID:              questionRequest.UserID,
 					QuestionAnswers: QuestionAnswersRequest{
@@ -631,8 +607,6 @@ func questionRequest() http.HandlerFunc {
 				if err != nil {
 					responseErrorJSON(w, http.StatusInternalServerError, err.Error())
 				}
-			} else {
-				user = users[0]
 			}
 
 			responseJSON(w, http.StatusOK, questionsResponse)
@@ -668,6 +642,26 @@ func questionAnswerRequest() http.HandlerFunc {
 			err = json.Unmarshal(requestBody, &questionAnswer)
 			if err != nil {
 				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
+			if len(questionAnswer.UserID) != 36 {
+				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'userID'.")
+				return
+			} else if len(questionAnswer.QuestionID) != 24 {
+				responseErrorJSON(w, http.StatusInternalServerError, "'questionID is invalid.'")
+				return
+			} else if len(questionAnswer.QuestionValue) == 0 {
+				responseErrorJSON(w, http.StatusInternalServerError, "'questionValue is invalid.'")
+				return
+			} else if questionAnswer.QuestionNumber <= 0 {
+				responseErrorJSON(w, http.StatusInternalServerError, "'questionNumber is invalid.'")
+				return
+			} else if questionAnswer.QuestionAnswerID < 1 || questionAnswer.QuestionAnswerID > 5 {
+				responseErrorJSON(w, http.StatusInternalServerError, "'questionAnswerID is invalid.'")
+				return
+			} else if questionAnswer.Lang != "ja" && questionAnswer.Lang != "en" {
+				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'lang'.")
 				return
 			}
 
@@ -717,16 +711,15 @@ func questionAnswerRequest() http.HandlerFunc {
 				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
 			}
 
-			questionsResponse := QuestionsResponse{
-				QuestionResponse{
-					Version:        apiVersion,
-					QuestionNumber: -1,
-					QuestionJA:     "",
-					QuestionEN:     "",
-					URL:            "",
-					Title:          "",
-					Description:    "",
-				},
+			questionRequest := QuestionRequest{
+				UserID: questionAnswer.UserID,
+				Value:  questionAnswer.QuestionValue,
+				Lang:   questionAnswer.Lang,
+			}
+
+			err, questionsResponse := questionOrder(questionRequest, questionAnswer.QuestionNumber+1)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
 			}
 
 			responseJSON(w, http.StatusOK, questionsResponse)
