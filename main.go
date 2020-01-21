@@ -32,6 +32,24 @@ type Configs struct {
 	Product Config `json:"product"`
 }
 
+type QuestionAnswerRequest struct {
+	QuestionID       string `json:"questionID" bson:"question_id"`
+	UserID           string `json:"userID" bson:"user_id"`
+	QuestionNumber   int    `json:"questionNumber" bson:"question_number"`
+	Version          string `json:"version" bson:"version"`
+	QuestionAnswerID int    `json:"questionAnswerID" bson:"question_answer_id"`
+	Lang             string `json:"lang" bson:"lang"`
+}
+
+type QuestionAnswersRequest []QuestionAnswerRequest
+
+type User struct {
+	ID              string                 `bson:"id"`
+	QuestionAnswers QuestionAnswersRequest `bson:"question_answers"`
+}
+
+type Users []User
+
 type UserQueryRequest struct {
 	Version string `json:"version" bson:"version"`
 	Href    string `json:"href" bson:"href"`
@@ -65,6 +83,7 @@ type UserFavoritesResponse []UserFavoriteResponse
 
 type QuestionRequest struct {
 	Version string `json:"version" bson:"version"`
+	UserID  string `json:"userID" bson:"user_id"`
 	Value   string `json:"value" bson:"value"`
 	Lang    string `json:"lang" bson:"lang"`
 }
@@ -72,11 +91,14 @@ type QuestionRequest struct {
 type QuestionsRequest []QuestionRequest
 
 type QuestionResponse struct {
-	Version     string   `json:"version"`
-	Questions   []string `json:"questions"`
-	URL         string   `json:"url"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
+	Version        string `json:"version"`
+	QuestionID     string `json:"questionID"`
+	QuestionNumber int    `json:"questionNumber"`
+	QuestionJA     string `json:"questionJA"`
+	QuestionEN     string `json:"questionEN"`
+	URL            string `json:"url"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
 }
 
 type QuestionsResponse []QuestionResponse
@@ -114,8 +136,8 @@ type Words []Word
 
 type Question struct {
 	ID                   string `bson:"_id"`
-	Lang                 string `bson:"lang"`
-	Question             string `bson:"question"`
+	QuestionJA           string `bson:"question_ja"`
+	QuestionEN           string `bson:"question_en"`
 	QuestionSeedEN       string `bson:"question_seed_en"`
 	QuestionSeedJA       string `bson:"question_seed_ja"`
 	QuestionSeedType     string `bson:"question_seed_type"`
@@ -147,7 +169,7 @@ func responseErrorJSON(w http.ResponseWriter, code int, message string) {
 func CORSforOptions(w *http.ResponseWriter) {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
 	(*w).Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-	(*w).Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	(*w).WriteHeader(204)
 }
 
@@ -324,7 +346,10 @@ func questionRequest() http.HandlerFunc {
 
 			fmt.Println(questionRequest)
 
-			if len(questionRequest.Value) == 0 {
+			if len(questionRequest.UserID) == 0 {
+				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'userID'.")
+				return
+			} else if len(questionRequest.Value) == 0 {
 				responseErrorJSON(w, http.StatusInternalServerError, "requestBody don't have 'value'.")
 				return
 			} else if len(questionRequest.Lang) == 0 {
@@ -365,10 +390,20 @@ func questionRequest() http.HandlerFunc {
 			}
 			defer client.Disconnect(ctx)
 
+			userCollection := client.Database("oborobot").Collection("user")
+
+			findOptions := options.Find()
+			idFilter := bson.M{"id": questionRequest.UserID}
+			cur, err := userCollection.Find(ctx, idFilter, findOptions)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
 			words_collection := client.Database("oborobot").Collection("word")
 
 			filter := bson.M{}
-			cur, err := words_collection.Find(ctx, filter)
+			cur, err = words_collection.Find(ctx, filter)
 			if err != nil {
 				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
 				return
@@ -440,36 +475,38 @@ func questionRequest() http.HandlerFunc {
 						}
 					}
 				}
-
 			}
 
-			fmt.Println(urlFilterWords, len(urlFilterWords))
-			fmt.Println(keyWords)
+			// fmt.Println(urlFilterWords, len(urlFilterWords))
+			// fmt.Println(keyWords, 111)
+
+			// Goの場合 urlList
+			// [https://frasco.io/why-we-switched-from-python-to-go-19581e27de7c https://teratail.com/questions/93783 http://www.spinute.org/go-by-example/url-parsing.html]
 
 			maxLoopNumber := 10
-			questionNumber := 3
+			questionCount := 5
 
-			select_keywords_success := false
+			// select_keywords_success := false
 			selectKeywords := []string{}
 			for i := 0; i < maxLoopNumber; i++ {
 
 				selectKeywords = []string{}
-				for j := 0; j < questionNumber; j++ {
+				for j := 0; j < questionCount; j++ {
 					rand.Seed(time.Now().UnixNano())
 					randomValue := rand.Intn(len(keyWords))
 					selectKeywords = append(selectKeywords, keyWords[randomValue])
 				}
 
-				if len(removeDuplicate(selectKeywords)) == questionNumber {
-					select_keywords_success = true
+				if len(removeDuplicate(selectKeywords)) == questionCount {
+					// select_keywords_success = true
 					break
 				}
 			}
 
-			fmt.Println(select_keywords_success, selectKeywords)
+			// fmt.Println(selectKeywords)
 
 			questions_collection := client.Database("oborobot").Collection("question")
-			filter = bson.M{"lang": questionRequest.Lang}
+			filter = bson.M{}
 			cur, err = questions_collection.Find(ctx, filter)
 			if err != nil {
 				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
@@ -484,9 +521,10 @@ func questionRequest() http.HandlerFunc {
 				return
 			}
 
-			fmt.Println(111, questions)
+			// fmt.Println(questions)
 
 			suggest_question := []string{}
+			group_suggest_questions := []map[string]string{}
 			for i := 0; i < len(questions); i++ {
 				question := questions[i]
 				haveSelectKeyword := false
@@ -498,7 +536,7 @@ func questionRequest() http.HandlerFunc {
 					// }
 
 					// TODO: あっているか要確認
-					if (strings.ToUpper(question.QuestionSeedEN) == strings.ToUpper(selectKeyword) || strings.ToUpper(question.QuestionSeedJA) == strings.ToUpper(selectKeyword)) && question.QuestionSeedType != "Verb" && question.Lang == questionRequest.Lang {
+					if (strings.ToUpper(question.QuestionSeedEN) == strings.ToUpper(selectKeyword) || strings.ToUpper(question.QuestionSeedJA) == strings.ToUpper(selectKeyword)) && question.QuestionSeedType != "Verb" {
 
 						haveString := false
 						for k := 0; k < len(suggest_question); k++ {
@@ -516,15 +554,24 @@ func questionRequest() http.HandlerFunc {
 				}
 
 				if haveSelectKeyword == true {
-					suggest_question = append(suggest_question, question.Question)
+					suggest_question = append(suggest_question, question.QuestionJA)
+					suggest_question = append(suggest_question, question.QuestionEN)
+
+					suggest_questions := map[string]string{"question_id": question.ID, "question_ja": question.QuestionJA, "question_en": question.QuestionEN}
+					group_suggest_questions = append(group_suggest_questions, suggest_questions)
+					// fmt.Println(question.QuestionJA, question.QuestionEN)
 				}
 			}
-			fmt.Println()
-			fmt.Println(suggest_question, urlList)
+			fmt.Println(group_suggest_questions)
+			fmt.Println(urlList)
+			// fmt.Println(suggest_question)
 
 			rand.Seed(time.Now().UnixNano())
 			randomValue := rand.Intn(len(urlList))
 			suggest_url := urlList[randomValue]
+
+			randomValue = rand.Intn(len(group_suggest_questions))
+			suggest_ja_en_question := group_suggest_questions[randomValue]
 
 			favorites_collection := client.Database("oborobot").Collection("favorite")
 
@@ -545,15 +592,140 @@ func questionRequest() http.HandlerFunc {
 				suggest_url_description = favorite.Description
 			}
 
-			fmt.Println(suggest_question, suggest_url, suggest_url_title)
+			// fmt.Println(suggest_question, suggest_url, suggest_url_title)
+
+			questionNumber := 1
 
 			questionsResponse := QuestionsResponse{
 				QuestionResponse{
-					Version:     apiVersion,
-					Questions:   suggest_question,
-					URL:         suggest_url,
-					Title:       suggest_url_title,
-					Description: suggest_url_description,
+					Version:        apiVersion,
+					QuestionID: suggest_ja_en_question["question_id"], // TODO: これ推測できる可能性がある｡
+					QuestionNumber: questionNumber,
+					QuestionJA:     suggest_ja_en_question["question_ja"],
+					QuestionEN:     suggest_ja_en_question["question_en"],
+					URL:            suggest_url,
+					Title:          suggest_url_title,
+					Description:    suggest_url_description,
+				},
+			}
+
+			users := Users{}
+			user := User{}
+			err = cur.All(ctx, &users)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
+			if len(users) == 0 {
+				// initQuestionAnswers := QuestionAnswersRequest{
+				// 	QuestionAnswerRequest{},
+				// }
+				user = User{
+					ID:              questionRequest.UserID,
+					QuestionAnswers: QuestionAnswersRequest{
+						// QuestionAnswerRequest{},
+					},
+				}
+				_, err = userCollection.InsertOne(ctx, user)
+				if err != nil {
+					responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				}
+			} else {
+				user = users[0]
+			}
+
+			responseJSON(w, http.StatusOK, questionsResponse)
+			return
+
+		default:
+			responseErrorJSON(w, http.StatusMethodNotAllowed, "Sorry, only POST method is supported.")
+			return
+		}
+
+		// unreach
+	}
+
+}
+
+func questionAnswerRequest() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "OPTIONS":
+			CORSforOptions(&w)
+			return
+		case "POST":
+			requestBody, err := ioutil.ReadAll(r.Body)
+			defer r.Body.Close()
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			questionAnswer := QuestionAnswerRequest{
+				Version: apiVersion,
+			}
+
+			err = json.Unmarshal(requestBody, &questionAnswer)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+
+			// url, err := url.Parse(userQueryRequest.Href)
+			// if err != nil {
+			// 	fmt.Println(err)
+			// }
+
+			// queries := url.Query()
+
+			// keys, ok := queries["q"]
+
+			// if !ok || len(keys[0]) < 1 {
+			// 	fmt.Println(keys, " is missing")
+			// 	return
+			// }
+
+			// searchValue := keys[0]
+
+			// userQueryRequest.Value = searchValue
+
+			// fmt.Println(searchValue)
+
+			ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+			client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			defer client.Disconnect(ctx)
+
+			user_collection := client.Database("oborobot").Collection("user")
+			filter := bson.M{"id": questionAnswer.UserID}
+			fmt.Println(questionAnswer)
+			change := bson.M{
+				"$push": bson.M{
+					"question_answers": bson.M{
+						"question_id":        questionAnswer.QuestionID,
+						"question_number":    questionAnswer.QuestionNumber,
+						"question_answer_id": questionAnswer.QuestionAnswerID,
+						"lang":               questionAnswer.Lang,
+					},
+				},
+			}
+			_, err = user_collection.UpdateOne(ctx, filter, change)
+			if err != nil {
+				responseErrorJSON(w, http.StatusInternalServerError, err.Error())
+			}
+
+			questionsResponse := QuestionsResponse{
+				QuestionResponse{
+					Version:        apiVersion,
+					QuestionNumber: -1,
+					QuestionJA:     "",
+					QuestionEN:     "",
+					URL:            "",
+					Title:          "",
+					Description:    "",
 				},
 			}
 
@@ -615,6 +787,9 @@ func main() {
 
 	questionEndpointName := apiEndpointName + "/question"
 	http.HandleFunc(questionEndpointName, questionRequest())
+
+	questionAnswerEndpointName := apiEndpointName + "/questionAnswer"
+	http.HandleFunc(questionAnswerEndpointName, questionAnswerRequest())
 
 	schema := config.Schema
 	host := config.Host
